@@ -1,0 +1,1 @@
+export { UserRole } from 'src/user/enums/user.enum';
