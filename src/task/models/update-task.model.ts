@@ -5,9 +5,11 @@ export class UpdateTaskModel {
   static fromDto(
     dto: UpdateTaskRequestDto,
     taskId: string,
+    userId: string,
   ): UpdateTaskModel {
     const model = new UpdateTaskModel();
     model.id = taskId;
+    model.userId = userId;
     model.title = dto.title;
     model.description = dto.description;
     model.status = dto.status;
@@ -20,4 +22,5 @@ export class UpdateTaskModel {
   description?: string;
   status?: TaskStatus;
   priority?: TaskPriority;
+  userId: string;
 }

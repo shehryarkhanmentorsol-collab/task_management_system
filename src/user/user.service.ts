@@ -13,7 +13,7 @@ export class UserService {
   async findAll(): Promise<UserReadModel[]> {
     try {
       const users = await this.userRepository.findAll();
-      return users.map((u) => UserReadModel.fromEntity(u));
+      return users;
     } catch (error) {
       throw new InternalServerErrorException('Failed to retrieve users');
     }
@@ -26,8 +26,8 @@ export class UserService {
       if (!user) {
         throw new NotFoundException(`User with id ${id} not found`);
       }
+      return user;
 
-      return UserReadModel.fromEntity(user);
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw error;

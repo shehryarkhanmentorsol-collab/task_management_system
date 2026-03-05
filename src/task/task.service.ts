@@ -8,17 +8,19 @@ import { TaskRepository } from 'src/common/database/task/repositories/task.repos
 import { CreateTaskModel } from './models/create-task.model';
 import { UpdateTaskModel } from './models/update-task.model';
 import { GetTasksModel } from './models/get-task.model';
+import { DeleteTaskModel } from './models/delete-task.model';
 import { TaskReadModel } from './models/task-read.model';
 import { UserRole } from 'src/user/enums/user.enum';
+import { log } from 'console';
 
 @Injectable()
 export class TaskService {
   constructor(private readonly taskRepository: TaskRepository) {}
 
-  async create(model: CreateTaskModel): Promise<TaskReadModel> {
+  async create(model: CreateTaskModel): Promise<{id: string}> {
     try {
       const task = await this.taskRepository.create(model);
-      return TaskReadModel.fromEntity(task);
+      return task;
     } catch (error) {
       throw new InternalServerErrorException('Failed to create task');
     }
@@ -30,7 +32,7 @@ export class TaskService {
     try {
       const [tasks, total] = await this.taskRepository.findAllByUser(model);
       return {
-        items: tasks.map((t) => TaskReadModel.fromEntity(t)),
+        items: tasks,
         total,
       };
     } catch (error) {
@@ -40,8 +42,8 @@ export class TaskService {
 
   async findOne(id: string, userId: string): Promise<TaskReadModel> {
     try {
-      const task = await this.taskRepository.findByIdAndUser(id, userId);
-      return TaskReadModel.fromEntity(task);
+      const task = await this.taskRepository.findByIdAndUser(userId, id);
+      return task;
     } catch (error) {
       if (
         error instanceof NotFoundException ||
@@ -55,11 +57,10 @@ export class TaskService {
 
   async update(
     model: UpdateTaskModel,
-    userId: string,
   ): Promise<TaskReadModel> {
     try {
-      const task = await this.taskRepository.update(model, userId);
-      return TaskReadModel.fromEntity(task);
+      const taskEntity = await this.taskRepository.update(model, model.userId);
+      return taskEntity;
     } catch (error) {
       if (
         error instanceof NotFoundException ||
@@ -72,12 +73,10 @@ export class TaskService {
   }
 
   async delete(
-    id: string,
-    userId: string,
-    userRole: UserRole,
-  ): Promise<void> {
+    model: DeleteTaskModel,
+  ): Promise<{id: string}> {
     try {
-      await this.taskRepository.delete(id, userId, userRole);
+      return await this.taskRepository.delete(model);
     } catch (error) {
       if (
         error instanceof NotFoundException ||

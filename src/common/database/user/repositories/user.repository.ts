@@ -9,33 +9,43 @@ import * as bcrypt from 'bcrypt';
 import { DATABASE_CONNECTION } from '../../database.consts';
 import { UserEntity } from '../entities/user.entity';
 import { RegisterModel } from 'src/auth/models/register.model';
+import { BaseRepository, IQueryOptions } from '../../base.repository';
+import { UserReadModel } from 'src/user/models/user-read.model';
 
 @Injectable()
-export class UserRepository {
-  private readonly repository: Repository<UserEntity>;
-
+export class UserRepository extends BaseRepository{
   constructor(
-    @Inject(DATABASE_CONNECTION) private readonly dataSource: DataSource,
+    @Inject(DATABASE_CONNECTION)  dataSource: DataSource,
   ) {
-    this.repository = this.dataSource.getRepository(UserEntity);
+     super(dataSource);
   }
 
-  async findById(id: string): Promise<UserEntity | null> {
-    return this.repository.findOne({ where: { id } });
+  async findById(id: string, options?: IQueryOptions): Promise<UserReadModel | null> {
+    const {entityManager} = this.parseOptions(options);
+    const repository = entityManager.getRepository(UserEntity);
+    const user = await repository.findOne({ where: { id } });
+    return user ? UserReadModel.fromEntity(user) : null;
   }
 
-  async findByEmail(email: string): Promise<UserEntity | null> {
-    return this.repository.findOne({ where: { email } });
+  async findByEmail(email: string, options?: IQueryOptions): Promise<UserEntity | null> {
+    const {entityManager} = this.parseOptions(options);
+    const repository = entityManager.getRepository(UserEntity);
+    return repository.findOne({ where: { email } });
   }
 
-  async findAll(): Promise<UserEntity[]> {
-    return this.repository.find({
+  async findAll(options?: IQueryOptions): Promise<UserReadModel[]> {
+    const {entityManager} = this.parseOptions(options);
+    const repository = entityManager.getRepository(UserEntity);
+    const users = await repository.find({
       select: ['id', 'name', 'email', 'role', 'createdAt'],
       relations: ['tasks'],
     });
+    return users.map((u) => UserReadModel.fromEntity(u));
   }
 
-  async create(model: RegisterModel): Promise<UserEntity> {
+  async create(model: RegisterModel, options?: IQueryOptions): Promise<UserReadModel> {
+    const {entityManager} = this.parseOptions(options);
+    const repository = entityManager.getRepository(UserEntity);
     try {
       const existingUser = await this.findByEmail(model.email);
       if (existingUser) {
@@ -54,7 +64,8 @@ export class UserRepository {
       entity.password = hashedPassword;
       entity.role = model.role;
 
-      return await this.repository.save(entity);
+      const result = await repository.save(entity);
+      return result;
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error;

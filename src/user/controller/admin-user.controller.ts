@@ -15,6 +15,7 @@ export class AdminUserController {
   @Get()
   async getAllUsers(): Promise<UserListResponseDto[]> {
     const users = await this.userService.findAll();
+    //we can move this .map functionality to the repository make the service and admin-controller more clean and the repository can return UserListResponseDto instead of UserEntity
     return users.map((u) => UserListResponseDto.fromModel(u));
   }
 }

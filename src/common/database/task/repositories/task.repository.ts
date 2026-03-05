@@ -11,19 +11,23 @@ import { TaskEntity } from '../entities/task.entity';
 import { CreateTaskModel } from 'src/task/models/create-task.model';
 import { UpdateTaskModel } from 'src/task/models/update-task.model';
 import { GetTasksModel } from 'src/task/models/get-task.model';
+import { DeleteTaskModel } from 'src/task/models/delete-task.model';
 import { UserRole } from 'src/user/enums/user.enum';
+import { BaseRepository, IQueryOptions } from '../../base.repository';
+import { TaskReadModel } from 'src/task/models/task-read.model';
 
 @Injectable()
-export class TaskRepository {
-  private readonly repository: Repository<TaskEntity>;
+export class TaskRepository extends BaseRepository {
 
   constructor(
-    @Inject(DATABASE_CONNECTION) private readonly dataSource: DataSource,
+    @Inject(DATABASE_CONNECTION) dataSource: DataSource,
   ) {
-    this.repository = this.dataSource.getRepository(TaskEntity);
+    super(dataSource);
   }
 
-  async create(model: CreateTaskModel): Promise<TaskEntity> {
+  async create(model: CreateTaskModel, options?: IQueryOptions): Promise<{id: string}> {
+    const {entityManager} = this.parseOptions(options);
+    const repository = entityManager.getRepository<TaskEntity>(TaskEntity);
     try {
       const entity = new TaskEntity();
       entity.title = model.title;
@@ -32,15 +36,19 @@ export class TaskRepository {
       entity.priority = model.priority;
       entity.userId = model.userId;
 
-      return await this.repository.save(entity);
+      const result = await repository.save(entity);
+      return result
     } catch (error) {
       throw new InternalServerErrorException('Failed to create task', {
-        cause: new Error(`Error creating task: ${(error as any)?.message}`),
+        cause: new Error(`Error creating task: ${error instanceof Error ? error.message : String(error)}`),
       });
     }
   }
 
-  async findAllByUser(model: GetTasksModel): Promise<[TaskEntity[], number]> {
+  async findAllByUser(model: GetTasksModel, options?: IQueryOptions): Promise<[TaskReadModel[], number]> {
+    const {entityManager} = this.parseOptions(options);
+    const repository = entityManager.getRepository<TaskEntity>(TaskEntity);
+
     try {
       const { userId, status, priority, page, limit } = model;
       const skip = (page - 1) * limit;
@@ -55,44 +63,49 @@ export class TaskRepository {
         where.priority = priority;
       }
 
-      return await this.repository.findAndCount({
+      const [results, count] = await repository.findAndCount({
         where,
         relations: ['user'],
         order: { createdAt: 'DESC' },
         skip,
         take: limit,
       });
+      return [results.map((t) => TaskReadModel.fromEntity(t)), count];
     } catch (error) {
       throw new InternalServerErrorException('Failed to fetch tasks', {
-        cause: new Error(`Error fetching tasks: ${(error as any)?.message}`),
+        cause: new Error(`Error fetching tasks: ${error instanceof Error ? error.message : String(error)}`),
       });
     }
   }
 
-  async findByIdAndUser(id: string, userId: string): Promise<TaskEntity> {
-    const task = await this.repository.findOne({ where: { id } });
+  async findByIdAndUser(userId: string, id: string, options?: IQueryOptions): Promise<TaskReadModel> {
+    const {entityManager} = this.parseOptions(options);
+    const repository = entityManager.getRepository<TaskEntity>(TaskEntity);
+
+    const task = await repository.findOne({ where: { userId, id } });
 
     if (!task) {
+      // either does not exist or does not belong to this user
       throw new NotFoundException(`Task with id ${id} not found`);
-    }
-
-    if (task.userId !== userId) {
-      throw new ForbiddenException('You do not have access to this task');
     }
 
     return task;
   }
 
-  async update(model: UpdateTaskModel, userId: string): Promise<TaskEntity> {
+  async update(model: UpdateTaskModel, userId: string, options?: IQueryOptions): Promise<TaskReadModel> {
+    const {entityManager} = this.parseOptions(options);
+    const repository = entityManager.getRepository<TaskEntity>(TaskEntity);
+
     try {
-      const task = await this.findByIdAndUser(model.id, userId);
+      const task = await this.findByIdAndUser(model.id, userId, options);
 
       if (model.title !== undefined) task.title = model.title;
       if (model.description !== undefined) task.description = model.description;
       if (model.status !== undefined) task.status = model.status;
       if (model.priority !== undefined) task.priority = model.priority;
 
-      return await this.repository.save(task);
+      const result = await repository.save(task);
+      return result
     } catch (error) {
       if (
         error instanceof NotFoundException ||
@@ -101,33 +114,35 @@ export class TaskRepository {
         throw error;
       }
       throw new InternalServerErrorException('Failed to update task', {
-        cause: new Error(`Error updating task: ${(error as any)?.message}`),
+        cause: new Error(`Error updating task: ${error instanceof Error ? error.message : String(error)}`),
       });
     }
   }
 
   async delete(
-    id: string,
-    userId: string,
-    userRole: UserRole,
-  ): Promise<void> {
-    const task = await this.repository.findOne({ where: { id } });
+    model: DeleteTaskModel,
+    options?: IQueryOptions,
+  ): Promise<{id: string}> {
+    const {entityManager} = this.parseOptions(options);
+    const repository = entityManager.getRepository<TaskEntity>(TaskEntity);
+    const task = await repository.findOne({ where: { id: model.id } });
 
     if (!task) {
-      throw new NotFoundException(`Task with id ${id} not found`);
+      throw new NotFoundException(`Task with id ${model.id} not found`);
     }
 
-    if (userRole !== UserRole.ADMIN && task.userId !== userId) {
+    if (model.userRole !== UserRole.ADMIN && task.userId !== model.userId) {
       throw new ForbiddenException(
         'You do not have permission to delete this task',
       );
     }
 
     try {
-      await this.repository.remove(task);
+      await repository.remove(task);
+      return { id: model.id };
     } catch (error) {
       throw new InternalServerErrorException('Failed to delete task', {
-        cause: new Error(`Error deleting task: ${(error as any)?.message}`),
+        cause: new Error(`Error deleting task: ${error instanceof Error ? error.message : String(error)}`),
       });
     }
   }

@@ -8,7 +8,7 @@ export interface IQueryOptions {
 export abstract class BaseRepository {
   constructor(protected readonly connection: DataSource) {}
 
-  protected parseOptions(options?: IQueryOptions): IQueryOptions {
+  protected parseOptions(options?: IQueryOptions): { entityManager: EntityManager } {
     return {
       entityManager: options?.entityManager ?? this.connection.manager,
     };

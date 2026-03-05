@@ -19,7 +19,7 @@ export class AuthService {
   async register(model: RegisterModel): Promise<RegisterModel> {
     try {
       const created = await this.userRepository.create(model);
-      return RegisterModel.fromEntity(created);
+      return created;
     } catch (error) {
       if (error instanceof BadRequestException) {
         console.log('REGISTER ERROR:', error);

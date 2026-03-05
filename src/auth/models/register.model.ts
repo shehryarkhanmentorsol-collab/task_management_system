@@ -1,6 +1,7 @@
 import { UserRole } from 'src/user/enums/user.enum';
 import { RegisterRequestDto } from '../dto/request/register-request.dto';
 import { UserEntity } from 'src/common/database/user/entities/user.entity';
+import { UserReadModel } from 'src/user/models/user-read.model';
 
 export class RegisterModel {
   static fromDto(dto: RegisterRequestDto): RegisterModel {
@@ -20,6 +21,16 @@ export class RegisterModel {
     model.role = entity.role;
     model.createdAt = entity.createdAt;
     return model;
+  }
+
+  static fromModel(model: UserReadModel): RegisterModel {
+    const registerModel = new RegisterModel();
+    registerModel.id = model.id;
+    registerModel.name = model.name;
+    registerModel.email = model.email;
+    registerModel.role = model.role;
+    registerModel.createdAt = model.createdAt;
+    return registerModel;
   }
 
   id?: string;
