@@ -1,0 +1,294 @@
+// =============================================================================
+// FILE LOCATION: prisma/schema.prisma
+//
+// This is the ONLY file that defines your database tables, columns,
+// relations and enums. There are NO entity files in a Prisma project.
+//
+// HOW IT CONNECTS TO YOUR CODE:
+//   Each `model` block below = one table in PostgreSQL
+//   Each field inside a model = one column in that table
+//   The names here MUST match the names used in your repositories:
+//     db.user           ← model User
+//     db.project        ← model Project
+//     db.projectMember  ← model ProjectMember  (camelCase of model name)
+//     db.task           ← model Task
+//     db.fileAttachment ← model FileAttachment
+//     db.activityLog    ← model ActivityLog
+//
+// COMMANDS:
+//   npx prisma generate        → generates PrismaClient into node_modules
+//   npx prisma migrate dev     → creates SQL migration + runs it on DB
+//   npx prisma studio          → opens visual DB browser at localhost:5555
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// =============================================================================
+// ENUMS
+// These replace your separate TypeScript enum files at the DB level.
+// Your TS enums in src/ still exist for application-level type safety,
+// but these are what gets stored in the actual PostgreSQL columns.
+//
+// Sources read:
+//   src/user/enums/user.enum.ts          → UserRole
+//   src/project-member/enums/member.enum.ts → MemberRole
+//   src/task/enums/task.enum.ts          → TaskStatus, TaskPriority
+// =============================================================================
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum MemberRole {
+  OWNER
+  MEMBER
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+// =============================================================================
+// MODEL: User
+//
+// TABLE NAME in PostgreSQL: "User"
+// Prisma accessor in repositories: db.user.*
+//
+// Fields traced from:
+//   user.repository.ts      → db.user.create({ data: { name, email, password, role } })
+//   user.repository.ts      → db.user.findUnique({ where: { id } })
+//   user.repository.ts      → db.user.findUnique({ where: { email } })
+//   user.repository.ts      → db.user.findMany({ select: { id, name, email, role, createdAt } })
+//   user-read.model.ts      → id, name, email, role, createdAt
+//   register.model.ts       → name, email, password, role
+//
+// Relations traced from:
+//   project.repository.ts   → db.project.create({ data: { ownerId } })
+//                             → User owns many Projects
+//   project-member.repository.ts → db.projectMember.create({ data: { userId } })
+//                             → User can be member of many Projects
+//   task.repository.ts      → db.task.create({ data: { assignedTo } })
+//                             → User can be assigned to many Tasks
+//   file.repository.ts      → db.fileAttachment.create({ data: { uploadedBy } })
+//                             → User can upload many Files
+//   activity.repository.ts  → db.activityLog.create({ data: { userId } })
+//                             → User has many ActivityLogs
+// =============================================================================
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique   // enforced by: findByEmail duplicate check in user.repository.ts
+  password  String
+  role      UserRole @default(USER)
+  createdAt DateTime @default(now())
+
+  // ── Relations (not columns — used for Prisma .include and .connect) ─────────
+  ownedProjects   Project[]        @relation("ProjectOwner")
+  projectMembers  ProjectMember[]
+  assignedTasks   Task[]           @relation("TaskAssignee")
+  uploadedFiles   FileAttachment[]
+  activities      ActivityLog[]
+}
+
+// =============================================================================
+// MODEL: Project
+//
+// TABLE NAME in PostgreSQL: "Project"
+// Prisma accessor in repositories: db.project.*
+//
+// Fields traced from:
+//   project.repository.ts   → db.project.create({ data: { name, description, ownerId } })
+//   project.repository.ts   → db.project.findUnique({ where: { id } })
+//   project.repository.ts   → db.project.findMany({ include: { members: true } })
+//   project.repository.ts   → project.ownerId !== userId  (ownership check)
+//   project-read.model.ts   → id, name, description, ownerId, createdAt, members
+//   create-project.model.ts → name, description, ownerId
+//
+// Relations traced from:
+//   project.repository.ts   → db.project.create({ data: { members: { create: { userId, role } } } })
+//                             → Project has many ProjectMembers (nested create on project create)
+//   task.repository.ts      → db.task.create({ data: { projectId } })
+//                             → Project has many Tasks
+//   activity.repository.ts  → db.activityLog.create({ data: { projectId } })
+//                             → Project has many ActivityLogs
+// =============================================================================
+
+model Project {
+  id          String   @id @default(uuid())
+  name        String
+  description String?                        // ? = nullable (String | null)
+  ownerId     String                         // FK column pointing to User.id
+  createdAt   DateTime @default(now())
+
+  // ── Foreign key relation to User ────────────────────────────────────────────
+  // ownerId references User.id
+  // onDelete: Cascade → if User is deleted, their projects are deleted too
+  owner      User            @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  // ── Relations ────────────────────────────────────────────────────────────────
+  members    ProjectMember[]
+  tasks      Task[]
+  activities ActivityLog[]
+}
+
+// =============================================================================
+// MODEL: ProjectMember
+//
+// TABLE NAME in PostgreSQL: "ProjectMember"
+// Prisma accessor in repositories: db.projectMember.*
+//
+// Fields traced from:
+//   project-member.repository.ts → db.projectMember.create({ data: { projectId, userId, role } })
+//   project-member.repository.ts → db.projectMember.findUnique({
+//                                    where: { projectId_userId: { projectId, userId } }
+//                                  })
+//                                  ↑ This compound unique key MUST match @@unique([projectId, userId])
+//   project-member.repository.ts → db.projectMember.findMany({ where: { projectId },
+//                                    include: { user: { select: { id, name, email } } }
+//                                  })
+//   project-member-read.model.ts → id, projectId, userId, role, createdAt, user
+//   invite-member.model.ts       → projectId, userId, role
+// =============================================================================
+
+model ProjectMember {
+  id        String     @id @default(uuid())
+  projectId String                           // FK column → Project.id
+  userId    String                           // FK column → User.id
+  role      MemberRole @default(MEMBER)
+  createdAt DateTime   @default(now())
+
+  // ── Foreign key relations ────────────────────────────────────────────────────
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // ── Compound unique constraint ───────────────────────────────────────────────
+  // This is what enables the Prisma query:
+  //   db.projectMember.findUnique({ where: { projectId_userId: { projectId, userId } } })
+  // Prisma auto-generates the name "projectId_userId" from the field names
+  @@unique([projectId, userId])
+}
+
+// =============================================================================
+// MODEL: Task
+//
+// TABLE NAME in PostgreSQL: "Task"
+// Prisma accessor in repositories: db.task.*
+//
+// Fields traced from:
+//   task.repository.ts    → db.task.create({ data: {
+//                             title, description, status, priority,
+//                             assignedTo, projectId, dueDate
+//                           }})
+//   task.repository.ts    → db.task.findUnique({ where: { id } })
+//   task.repository.ts    → db.task.findMany({ where: { projectId, status, priority } })
+//   task.repository.ts    → db.task.update({ data: { title, description, status,
+//                             priority, assignedTo, dueDate } })
+//   task.repository.ts    → task.assignedTo !== userId  (ownership/permission check)
+//   task-read.model.ts    → id, title, description, status, priority,
+//                           assignedTo, projectId, dueDate, createdAt
+//   create-task.model.ts  → title, description, status, priority, assignedTo, projectId, dueDate
+//
+// Relations traced from:
+//   file.repository.ts    → db.fileAttachment.create({ data: { taskId } })
+//                           → Task has many FileAttachments
+//   activity.repository.ts → db.activityLog.create({ data: { taskId } })
+//                           → Task has many ActivityLogs
+// =============================================================================
+
+model Task {
+  id          String       @id @default(uuid())
+  title       String
+  description String?                          // nullable
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  assignedTo  String?                          // nullable FK → User.id
+  projectId   String                           // FK → Project.id
+  dueDate     DateTime?                        // nullable
+  createdAt   DateTime     @default(now())
+
+  // ── Foreign key relations ────────────────────────────────────────────────────
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // assignedTo is nullable so this relation is optional (User?)
+  // Named relation "TaskAssignee" to distinguish from other User relations
+  assignee User? @relation("TaskAssignee", fields: [assignedTo], references: [id])
+
+  // ── Relations ────────────────────────────────────────────────────────────────
+  attachments FileAttachment[]
+  activities  ActivityLog[]
+}
+
+// =============================================================================
+// MODEL: FileAttachment
+//
+// TABLE NAME in PostgreSQL: "FileAttachment"
+// Prisma accessor in repositories: db.fileAttachment.*
+//
+// Fields traced from:
+//   file.repository.ts     → db.fileAttachment.create({ data: {
+//                              fileUrl, fileName, taskId, uploadedBy
+//                            }})
+//   file.repository.ts     → db.fileAttachment.findMany({ where: { taskId } })
+//   file-read.model.ts     → id, fileName, fileUrl, taskId, uploadedBy, createdAt
+//   file-upload.model.ts   → fileName, fileUrl, taskId, uploadedBy
+// =============================================================================
+
+model FileAttachment {
+  id         String   @id @default(uuid())
+  fileUrl    String
+  fileName   String
+  taskId     String                           // FK → Task.id
+  uploadedBy String                           // FK → User.id
+  createdAt  DateTime @default(now())
+
+  // ── Foreign key relations ────────────────────────────────────────────────────
+  task     Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploader User @relation(fields: [uploadedBy], references: [id])
+}
+
+// =============================================================================
+// MODEL: ActivityLog
+//
+// TABLE NAME in PostgreSQL: "ActivityLog"
+// Prisma accessor in repositories: db.activityLog.*
+//
+// Fields traced from:
+//   activity.repository.ts → db.activityLog.create({ data: {
+//                              action, userId, projectId, taskId
+//                            }})
+//   activity.repository.ts → db.activityLog.findMany({ where: { projectId },
+//                              orderBy: { createdAt: 'desc' }
+//                            })
+//   activity-read.model.ts → id, action, userId, projectId, taskId, createdAt
+//   activity.events.ts     → action values: 'task.created', 'task.updated', etc.
+// =============================================================================
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  action    String                           // e.g. 'task.created', 'member.invited'
+  userId    String                           // FK → User.id (who did the action)
+  projectId String?                          // nullable FK → Project.id
+  taskId    String?                          // nullable FK → Task.id
+  createdAt DateTime @default(now())
+
+  // ── Foreign key relations ────────────────────────────────────────────────────
+  user    User     @relation(fields: [userId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+  task    Task?    @relation(fields: [taskId], references: [id])
+}
